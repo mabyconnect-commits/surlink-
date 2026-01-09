@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const { supabaseAdmin } = require('../config/supabase');
 
 // Protect routes - require authentication
 exports.protect = async (req, res, next) => {
@@ -23,24 +23,32 @@ exports.protect = async (req, res, next) => {
       // Verify token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-      // Get user from token
-      req.user = await User.findById(decoded.id).select('-password');
+      // Get user from Supabase
+      const { data: user, error } = await supabaseAdmin
+        .from('users')
+        .select('*')
+        .eq('id', decoded.id)
+        .single();
 
-      if (!req.user) {
+      if (error || !user) {
         return res.status(401).json({
           success: false,
           message: 'User no longer exists'
         });
       }
 
+      // Remove password_hash from user object
+      delete user.password_hash;
+
       // Check if user account is active
-      if (!req.user.isActive) {
+      if (!user.is_active) {
         return res.status(401).json({
           success: false,
           message: 'Your account has been deactivated'
         });
       }
 
+      req.user = user;
       next();
     } catch (error) {
       return res.status(401).json({
@@ -72,11 +80,11 @@ exports.authorize = (...roles) => {
 
 // Check if provider is verified
 exports.requireVerified = (req, res, next) => {
-  if (req.user.role === 'provider' && req.user.kycStatus !== 'verified') {
+  if (req.user.role === 'provider' && req.user.kyc_status !== 'verified') {
     return res.status(403).json({
       success: false,
       message: 'You must complete KYC verification to access this feature',
-      kycStatus: req.user.kycStatus
+      kycStatus: req.user.kyc_status
     });
   }
   next();
@@ -94,7 +102,16 @@ exports.optionalAuth = async (req, res, next) => {
     if (token) {
       try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = await User.findById(decoded.id).select('-password');
+        const { data: user } = await supabaseAdmin
+          .from('users')
+          .select('*')
+          .eq('id', decoded.id)
+          .single();
+
+        if (user) {
+          delete user.password_hash;
+          req.user = user;
+        }
       } catch (error) {
         // Token invalid but continue without user
         req.user = null;

@@ -5,14 +5,14 @@ const helmet = require('helmet');
 const compression = require('compression');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
-const connectDB = require('./config/database');
+const { testConnection } = require('./config/supabase');
 const errorHandler = require('./middleware/error');
 
 // Initialize express app
 const app = express();
 
-// Connect to database
-connectDB();
+// Test Supabase connection
+testConnection();
 
 // Body parser middleware
 app.use(express.json({ limit: '10mb' }));
@@ -49,9 +49,10 @@ app.use('/uploads', express.static('uploads'));
 app.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
-    message: 'Surlink API is running',
+    message: 'Surlink API is running with Supabase',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV
+    environment: process.env.NODE_ENV,
+    database: 'Supabase (PostgreSQL)'
   });
 });
 
@@ -83,7 +84,8 @@ const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => {
   console.log(`\n🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
   console.log(`📍 API URL: ${process.env.API_URL || `http://localhost:${PORT}`}`);
-  console.log(`🌐 Client URL: ${process.env.CLIENT_URL || 'http://localhost:3000'}\n`);
+  console.log(`🌐 Client URL: ${process.env.CLIENT_URL || 'http://localhost:3000'}`);
+  console.log(`💾 Database: Supabase (PostgreSQL)\n`);
 });
 
 // Handle unhandled promise rejections

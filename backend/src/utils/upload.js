@@ -1,24 +1,9 @@
 const multer = require('multer');
 const path = require('path');
-const cloudinary = require('cloudinary').v2;
+const { supabase } = require('../config/supabase');
 
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET
-});
-
-// Multer storage configuration
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, process.env.UPLOAD_PATH || './uploads');
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
+// Multer storage configuration (memory storage for Supabase)
+const storage = multer.memoryStorage();
 
 // File filter
 const fileFilter = (req, file, cb) => {
@@ -40,21 +25,41 @@ const upload = multer({
   fileFilter: fileFilter
 });
 
-// Upload to Cloudinary
-exports.uploadToCloudinary = async (filePath, folder = 'surlink') => {
+// Upload to Supabase Storage
+exports.uploadToSupabase = async (file, folder = 'uploads', userId = null) => {
   try {
-    const result = await cloudinary.uploader.upload(filePath, {
-      folder: folder,
-      resource_type: 'auto'
-    });
+    const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'surlink-uploads';
+    const timestamp = Date.now();
+    const randomStr = Math.random().toString(36).substring(7);
+    const fileName = `${folder}/${userId || 'public'}/${timestamp}-${randomStr}${path.extname(file.originalname)}`;
+
+    const { data, error } = await supabase.storage
+      .from(bucket)
+      .upload(fileName, file.buffer, {
+        contentType: file.mimetype,
+        upsert: false
+      });
+
+    if (error) {
+      console.error('Supabase upload error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+
+    // Get public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from(bucket)
+      .getPublicUrl(fileName);
 
     return {
       success: true,
-      url: result.secure_url,
-      publicId: result.public_id
+      url: publicUrl,
+      path: fileName
     };
   } catch (error) {
-    console.error('Cloudinary upload error:', error);
+    console.error('Upload error:', error);
     return {
       success: false,
       error: error.message
@@ -62,13 +67,44 @@ exports.uploadToCloudinary = async (filePath, folder = 'surlink') => {
   }
 };
 
-// Delete from Cloudinary
-exports.deleteFromCloudinary = async (publicId) => {
+// Delete from Supabase Storage
+exports.deleteFromSupabase = async (filePath) => {
   try {
-    const result = await cloudinary.uploader.destroy(publicId);
-    return { success: true, result };
+    const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'surlink-uploads';
+
+    const { data, error } = await supabase.storage
+      .from(bucket)
+      .remove([filePath]);
+
+    if (error) {
+      console.error('Supabase delete error:', error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, data };
   } catch (error) {
-    console.error('Cloudinary delete error:', error);
+    console.error('Delete error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+// Get signed URL for private files
+exports.getSignedUrl = async (filePath, expiresIn = 3600) => {
+  try {
+    const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'surlink-uploads';
+
+    const { data, error } = await supabase.storage
+      .from(bucket)
+      .createSignedUrl(filePath, expiresIn);
+
+    if (error) {
+      console.error('Signed URL error:', error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true, url: data.signedUrl };
+  } catch (error) {
+    console.error('Signed URL error:', error);
     return { success: false, error: error.message };
   }
 };

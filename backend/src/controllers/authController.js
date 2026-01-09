@@ -1,5 +1,5 @@
-const User = require('../models/User');
-const Referral = require('../models/Referral');
+const { supabaseAdmin } = require('../config/supabase');
+const bcrypt = require('bcryptjs');
 const { sendTokenResponse } = require('../utils/jwt');
 const { sendWelcomeEmail, sendPasswordResetEmail } = require('../utils/email');
 const crypto = require('crypto');
@@ -12,60 +12,97 @@ exports.register = async (req, res, next) => {
     const { name, email, phone, password, role, referralCode } = req.body;
 
     // Check if user exists
-    const userExists = await User.findOne({ $or: [{ email }, { phone }] });
-    if (userExists) {
+    const { data: existingUser } = await supabaseAdmin
+      .from('users')
+      .select('id')
+      .or(`email.eq.${email},phone.eq.${phone}`)
+      .single();
+
+    if (existingUser) {
       return res.status(400).json({
         success: false,
         message: 'User with this email or phone already exists'
       });
     }
 
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const password_hash = await bcrypt.hash(password, salt);
+
     // Create user
-    const user = await User.create({
-      name,
-      email,
-      phone,
-      password,
-      role: role || 'customer'
-    });
+    const { data: user, error: userError } = await supabaseAdmin
+      .from('users')
+      .insert([{
+        name,
+        email,
+        phone,
+        password_hash,
+        role: role || 'customer'
+      }])
+      .select()
+      .single();
+
+    if (userError) throw userError;
 
     // Handle referral
     if (referralCode) {
-      const referrer = await User.findOne({ referralCode: referralCode.toUpperCase() });
+      const { data: referrer } = await supabaseAdmin
+        .from('users')
+        .select('id, referred_by_id')
+        .eq('referral_code', referralCode.toUpperCase())
+        .single();
 
       if (referrer) {
         // Create level 1 referral
-        await Referral.create({
-          referrer: referrer._id,
-          referred: user._id,
-          level: 1
-        });
+        await supabaseAdmin
+          .from('referrals')
+          .insert([{
+            referrer_id: referrer.id,
+            referred_id: user.id,
+            level: 1
+          }]);
 
-        user.referredBy = referrer._id;
-        user.referralLevel = 1;
+        // Update user's referredBy
+        await supabaseAdmin
+          .from('users')
+          .update({
+            referred_by_id: referrer.id,
+            referral_level: 1
+          })
+          .eq('id', user.id);
 
         // Create level 2 referral if referrer was also referred
-        if (referrer.referredBy) {
-          await Referral.create({
-            referrer: referrer.referredBy,
-            referred: user._id,
-            level: 2
-          });
+        if (referrer.referred_by_id) {
+          await supabaseAdmin
+            .from('referrals')
+            .insert([{
+              referrer_id: referrer.referred_by_id,
+              referred_id: user.id,
+              level: 2
+            }]);
 
           // Create level 3 referral
-          const level2Referrer = await User.findById(referrer.referredBy);
-          if (level2Referrer && level2Referrer.referredBy) {
-            await Referral.create({
-              referrer: level2Referrer.referredBy,
-              referred: user._id,
-              level: 3
-            });
+          const { data: level2Referrer } = await supabaseAdmin
+            .from('users')
+            .select('referred_by_id')
+            .eq('id', referrer.referred_by_id)
+            .single();
+
+          if (level2Referrer && level2Referrer.referred_by_id) {
+            await supabaseAdmin
+              .from('referrals')
+              .insert([{
+                referrer_id: level2Referrer.referred_by_id,
+                referred_id: user.id,
+                level: 3
+              }]);
           }
         }
-
-        await user.save();
       }
     }
+
+    // Remove password_hash from response
+    delete user.password_hash;
 
     // Send welcome email
     await sendWelcomeEmail(user);
@@ -98,9 +135,13 @@ exports.login = async (req, res, next) => {
     }
 
     // Check for user
-    const user = await User.findOne({ email }).select('+password');
+    const { data: user, error } = await supabaseAdmin
+      .from('users')
+      .select('*')
+      .eq('email', email)
+      .single();
 
-    if (!user) {
+    if (error || !user) {
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
@@ -108,7 +149,7 @@ exports.login = async (req, res, next) => {
     }
 
     // Check if password matches
-    const isMatch = await user.comparePassword(password);
+    const isMatch = await bcrypt.compare(password, user.password_hash);
 
     if (!isMatch) {
       return res.status(401).json({
@@ -118,8 +159,13 @@ exports.login = async (req, res, next) => {
     }
 
     // Update last login
-    user.lastLogin = Date.now();
-    await user.save();
+    await supabaseAdmin
+      .from('users')
+      .update({ last_login: new Date().toISOString() })
+      .eq('id', user.id);
+
+    // Remove password_hash from response
+    delete user.password_hash;
 
     // Send token response
     sendTokenResponse(user, 200, res, 'Login successful');
@@ -138,7 +184,16 @@ exports.login = async (req, res, next) => {
 // @access  Private
 exports.getMe = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user.id);
+    const { data: user, error } = await supabaseAdmin
+      .from('users')
+      .select('*')
+      .eq('id', req.user.id)
+      .single();
+
+    if (error) throw error;
+
+    // Remove password_hash
+    delete user.password_hash;
 
     res.status(200).json({
       success: true,
@@ -171,17 +226,30 @@ exports.updateProfile = async (req, res, next) => {
     if (req.user.role === 'provider') {
       if (req.body.services) fieldsToUpdate.services = req.body.services;
       if (req.body.experience) fieldsToUpdate.experience = req.body.experience;
-      if (req.body.availability) fieldsToUpdate.availability = req.body.availability;
+      if (req.body.availability) {
+        fieldsToUpdate.working_days = req.body.availability.workingDays;
+        fieldsToUpdate.working_hours_start = req.body.availability.workingHours?.start;
+        fieldsToUpdate.working_hours_end = req.body.availability.workingHours?.end;
+      }
     }
 
-    const user = await User.findByIdAndUpdate(
-      req.user.id,
-      fieldsToUpdate,
-      {
-        new: true,
-        runValidators: true
+    // Remove undefined values
+    Object.keys(fieldsToUpdate).forEach(key => {
+      if (fieldsToUpdate[key] === undefined) {
+        delete fieldsToUpdate[key];
       }
-    );
+    });
+
+    const { data: user, error } = await supabaseAdmin
+      .from('users')
+      .update(fieldsToUpdate)
+      .eq('id', req.user.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    delete user.password_hash;
 
     res.status(200).json({
       success: true,
@@ -211,10 +279,17 @@ exports.updatePassword = async (req, res, next) => {
       });
     }
 
-    const user = await User.findById(req.user.id).select('+password');
+    // Get user with password
+    const { data: user, error } = await supabaseAdmin
+      .from('users')
+      .select('password_hash')
+      .eq('id', req.user.id)
+      .single();
+
+    if (error) throw error;
 
     // Check old password
-    const isMatch = await user.comparePassword(oldPassword);
+    const isMatch = await bcrypt.compare(oldPassword, user.password_hash);
     if (!isMatch) {
       return res.status(401).json({
         success: false,
@@ -222,10 +297,26 @@ exports.updatePassword = async (req, res, next) => {
       });
     }
 
-    user.password = newPassword;
-    await user.save();
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    const password_hash = await bcrypt.hash(newPassword, salt);
 
-    sendTokenResponse(user, 200, res, 'Password updated successfully');
+    // Update password
+    await supabaseAdmin
+      .from('users')
+      .update({ password_hash })
+      .eq('id', req.user.id);
+
+    // Get updated user
+    const { data: updatedUser } = await supabaseAdmin
+      .from('users')
+      .select('*')
+      .eq('id', req.user.id)
+      .single();
+
+    delete updatedUser.password_hash;
+
+    sendTokenResponse(updatedUser, 200, res, 'Password updated successfully');
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -240,9 +331,13 @@ exports.updatePassword = async (req, res, next) => {
 // @access  Public
 exports.forgotPassword = async (req, res, next) => {
   try {
-    const user = await User.findOne({ email: req.body.email });
+    const { data: user, error } = await supabaseAdmin
+      .from('users')
+      .select('*')
+      .eq('email', req.body.email)
+      .single();
 
-    if (!user) {
+    if (error || !user) {
       return res.status(404).json({
         success: false,
         message: 'No user found with that email'
@@ -252,16 +347,22 @@ exports.forgotPassword = async (req, res, next) => {
     // Generate reset token
     const resetToken = crypto.randomBytes(20).toString('hex');
 
-    // Hash token and set to resetPasswordToken field
-    user.resetPasswordToken = crypto
+    // Hash token
+    const reset_password_token = crypto
       .createHash('sha256')
       .update(resetToken)
       .digest('hex');
 
-    // Set expire
-    user.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 minutes
+    // Set expire (10 minutes)
+    const reset_password_expire = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
-    await user.save({ validateBeforeSave: false });
+    await supabaseAdmin
+      .from('users')
+      .update({
+        reset_password_token,
+        reset_password_expire
+      })
+      .eq('id', user.id);
 
     // Create reset url
     const resetUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
@@ -274,11 +375,6 @@ exports.forgotPassword = async (req, res, next) => {
     });
   } catch (error) {
     console.error('Forgot password error:', error);
-
-    // Clear reset fields on error
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpire = undefined;
-    await user.save({ validateBeforeSave: false });
 
     res.status(500).json({
       success: false,
@@ -294,30 +390,49 @@ exports.forgotPassword = async (req, res, next) => {
 exports.resetPassword = async (req, res, next) => {
   try {
     // Get hashed token
-    const resetPasswordToken = crypto
+    const reset_password_token = crypto
       .createHash('sha256')
       .update(req.params.resetToken)
       .digest('hex');
 
-    const user = await User.findOne({
-      resetPasswordToken,
-      resetPasswordExpire: { $gt: Date.now() }
-    });
+    const { data: user, error } = await supabaseAdmin
+      .from('users')
+      .select('*')
+      .eq('reset_password_token', reset_password_token)
+      .gt('reset_password_expire', new Date().toISOString())
+      .single();
 
-    if (!user) {
+    if (error || !user) {
       return res.status(400).json({
         success: false,
         message: 'Invalid or expired reset token'
       });
     }
 
-    // Set new password
-    user.password = req.body.password;
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpire = undefined;
-    await user.save();
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    const password_hash = await bcrypt.hash(req.body.password, salt);
 
-    sendTokenResponse(user, 200, res, 'Password reset successful');
+    // Update password and clear reset fields
+    await supabaseAdmin
+      .from('users')
+      .update({
+        password_hash,
+        reset_password_token: null,
+        reset_password_expire: null
+      })
+      .eq('id', user.id);
+
+    // Get updated user
+    const { data: updatedUser } = await supabaseAdmin
+      .from('users')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+
+    delete updatedUser.password_hash;
+
+    sendTokenResponse(updatedUser, 200, res, 'Password reset successful');
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -335,15 +450,29 @@ exports.updateSettings = async (req, res, next) => {
     const { notifications, theme, language } = req.body;
 
     const updateFields = {};
-    if (notifications) updateFields['settings.notifications'] = notifications;
-    if (theme) updateFields['settings.theme'] = theme;
-    if (language) updateFields['settings.language'] = language;
 
-    const user = await User.findByIdAndUpdate(
-      req.user.id,
-      updateFields,
-      { new: true, runValidators: true }
-    );
+    if (notifications) {
+      if (notifications.email !== undefined) updateFields.settings_notifications_email = notifications.email;
+      if (notifications.push !== undefined) updateFields.settings_notifications_push = notifications.push;
+      if (notifications.sms !== undefined) updateFields.settings_notifications_sms = notifications.sms;
+      if (notifications.bookingUpdates !== undefined) updateFields.settings_notifications_booking_updates = notifications.bookingUpdates;
+      if (notifications.messages !== undefined) updateFields.settings_notifications_messages = notifications.messages;
+      if (notifications.promotions !== undefined) updateFields.settings_notifications_promotions = notifications.promotions;
+    }
+
+    if (theme) updateFields.settings_theme = theme;
+    if (language) updateFields.settings_language = language;
+
+    const { data: user, error } = await supabaseAdmin
+      .from('users')
+      .update(updateFields)
+      .eq('id', req.user.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    delete user.password_hash;
 
     res.status(200).json({
       success: true,
