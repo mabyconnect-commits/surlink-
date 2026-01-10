@@ -1,15 +1,25 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
+const {
+  createReview,
+  getProviderReviews,
+  getBookingReview,
+  updateReview,
+  deleteReview,
+  getMyReviews
+} = require('../controllers/reviewsController');
+
 const router = express.Router();
 
-// Reviews routes - To be fully implemented
-router.all('*', protect, async (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'Reviews API endpoint - Implementation in progress',
-    path: req.path,
-    method: req.method
-  });
-});
+// Public routes
+router.get('/provider/:id', getProviderReviews);
+
+// Protected routes
+router.use(protect);
+router.post('/', createReview);
+router.get('/my-reviews', getMyReviews);
+router.get('/booking/:id', getBookingReview);
+router.put('/:id', updateReview);
+router.delete('/:id', deleteReview);
 
 module.exports = router;
