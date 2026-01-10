@@ -18,14 +18,18 @@ testConnection();
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// CORS
+// CORS - Allow all origins in development
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  origin: process.env.NODE_ENV === 'production'
+    ? (process.env.CLIENT_URL || 'http://localhost:3000')
+    : true, // Allow all origins in development
   credentials: true
 }));
 
-// Security headers
-app.use(helmet());
+// Security headers - Disable CSP for development
+app.use(helmet({
+  contentSecurityPolicy: process.env.NODE_ENV === 'production' ? undefined : false
+}));
 
 // Compression
 app.use(compression());
@@ -56,6 +60,12 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Serve test page
+const path = require('path');
+app.get('/test', (req, res) => {
+  res.sendFile(path.join(__dirname, '../test-api.html'));
+});
+
 // API Routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/users', require('./routes/users'));
@@ -67,6 +77,7 @@ app.use('/api/wallet', require('./routes/wallet'));
 app.use('/api/referrals', require('./routes/referrals'));
 app.use('/api/kyc', require('./routes/kyc'));
 app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/upload', require('./routes/upload'));
 
 // 404 handler
 app.use((req, res) => {

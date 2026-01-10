@@ -16,12 +16,13 @@ exports.generateRefreshToken = (id) => {
 
 // Send token response
 exports.sendTokenResponse = (user, statusCode, res, message = 'Success') => {
-  // Create token
-  const token = this.generateToken(user._id);
-  const refreshToken = this.generateRefreshToken(user._id);
+  // Create token (using user.id for Supabase, not user._id for MongoDB)
+  const token = this.generateToken(user.id);
+  const refreshToken = this.generateRefreshToken(user.id);
 
   // Remove password from output
   user.password = undefined;
+  user.password_hash = undefined;
 
   res.status(statusCode).json({
     success: true,

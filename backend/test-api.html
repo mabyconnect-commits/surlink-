@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Surlink API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .result {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-left: 4px solid #4CAF50;
+            white-space: pre-wrap;
+            font-family: monospace;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .error {
+            border-left-color: #f44336;
+            background: #ffebee;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        label {
+            font-weight: bold;
+            margin-top: 10px;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Surlink Backend API Test</h1>
+        <p>Your backend is running on: <strong>http://localhost:5000</strong></p>
+
+        <!-- Health Check -->
+        <div class="test-section">
+            <h2>1. Health Check</h2>
+            <button onclick="testHealth()">Test Health Endpoint</button>
+            <div id="health-result" class="result" style="display:none;"></div>
+        </div>
+
+        <!-- Register User -->
+        <div class="test-section">
+            <h2>2. Register New User</h2>
+            <label>Name:</label>
+            <input type="text" id="reg-name" value="John Doe">
+
+            <label>Email:</label>
+            <input type="email" id="reg-email" value="john@example.com">
+
+            <label>Phone:</label>
+            <input type="tel" id="reg-phone" value="08012345678">
+
+            <label>Password:</label>
+            <input type="password" id="reg-password" value="Test1234!">
+
+            <label>Role:</label>
+            <select id="reg-role" style="width: 100%; padding: 10px; margin: 5px 0;">
+                <option value="customer">Customer</option>
+                <option value="provider">Provider</option>
+            </select>
+
+            <button onclick="testRegister()">Register User</button>
+            <div id="register-result" class="result" style="display:none;"></div>
+        </div>
+
+        <!-- Login -->
+        <div class="test-section">
+            <h2>3. Login</h2>
+            <label>Email:</label>
+            <input type="email" id="login-email" value="john@example.com">
+
+            <label>Password:</label>
+            <input type="password" id="login-password" value="Test1234!">
+
+            <button onclick="testLogin()">Login</button>
+            <div id="login-result" class="result" style="display:none;"></div>
+        </div>
+
+        <!-- Get Profile -->
+        <div class="test-section">
+            <h2>4. Get My Profile (Requires Login)</h2>
+            <p>First login above to get a token, then click below:</p>
+            <button onclick="testProfile()">Get Profile</button>
+            <div id="profile-result" class="result" style="display:none;"></div>
+        </div>
+    </div>
+
+    <script>
+        let authToken = null;
+
+        async function testHealth() {
+            const resultDiv = document.getElementById('health-result');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Loading...';
+
+            try {
+                const response = await fetch('http://localhost:5000/health');
+                const data = await response.json();
+                resultDiv.textContent = JSON.stringify(data, null, 2);
+                resultDiv.className = 'result';
+            } catch (error) {
+                resultDiv.textContent = 'Error: ' + error.message;
+                resultDiv.className = 'result error';
+            }
+        }
+
+        async function testRegister() {
+            const resultDiv = document.getElementById('register-result');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Loading...';
+
+            const userData = {
+                name: document.getElementById('reg-name').value,
+                email: document.getElementById('reg-email').value,
+                phone: document.getElementById('reg-phone').value,
+                password: document.getElementById('reg-password').value,
+                role: document.getElementById('reg-role').value
+            };
+
+            try {
+                const response = await fetch('http://localhost:5000/api/auth/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(userData)
+                });
+                const data = await response.json();
+
+                if (data.token) {
+                    authToken = data.token;
+                }
+
+                resultDiv.textContent = JSON.stringify(data, null, 2);
+                resultDiv.className = response.ok ? 'result' : 'result error';
+            } catch (error) {
+                resultDiv.textContent = 'Error: ' + error.message;
+                resultDiv.className = 'result error';
+            }
+        }
+
+        async function testLogin() {
+            const resultDiv = document.getElementById('login-result');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Loading...';
+
+            const credentials = {
+                email: document.getElementById('login-email').value,
+                password: document.getElementById('login-password').value
+            };
+
+            try {
+                const response = await fetch('http://localhost:5000/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(credentials)
+                });
+                const data = await response.json();
+
+                if (data.token) {
+                    authToken = data.token;
+                    resultDiv.textContent = '✅ Login successful! Token saved.\n\n' + JSON.stringify(data, null, 2);
+                } else {
+                    resultDiv.textContent = JSON.stringify(data, null, 2);
+                }
+
+                resultDiv.className = response.ok ? 'result' : 'result error';
+            } catch (error) {
+                resultDiv.textContent = 'Error: ' + error.message;
+                resultDiv.className = 'result error';
+            }
+        }
+
+        async function testProfile() {
+            const resultDiv = document.getElementById('profile-result');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+
+            if (!authToken) {
+                resultDiv.textContent = '❌ Please login first to get a token!';
+                resultDiv.className = 'result error';
+                return;
+            }
+
+            resultDiv.textContent = 'Loading...';
+
+            try {
+                const response = await fetch('http://localhost:5000/api/auth/me', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': 'Bearer ' + authToken
+                    }
+                });
+                const data = await response.json();
+                resultDiv.textContent = JSON.stringify(data, null, 2);
+                resultDiv.className = response.ok ? 'result' : 'result error';
+            } catch (error) {
+                resultDiv.textContent = 'Error: ' + error.message;
+                resultDiv.className = 'result error';
+            }
+        }
+    </script>
+</body>
+</html>
