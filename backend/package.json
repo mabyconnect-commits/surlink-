@@ -5,6 +5,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
+    "build": "node build",
     "dev": "nodemon src/server.js",
     "test": "jest --coverage",
     "seed": "node src/utils/seed.js"
