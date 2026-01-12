@@ -77,18 +77,6 @@ function CustomerDashboard() {
       </div>
     );
   }
-    {
-      id: '3',
-      name: 'David Eze',
-      service: 'Plumber',
-      rating: 4.7,
-      jobs: 89,
-      distance: '1.5 km',
-      price: 'From NGN 4,500',
-      avatar: null,
-      verified: true,
-    },
-  ];
 
   const getStatusColor = (status) => {
     switch (status) {
