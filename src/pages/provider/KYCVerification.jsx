@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../App';
+import { kycAPI, uploadAPI } from '../../services/apiClient';
 import {
   Shield,
   Upload,
@@ -72,14 +73,31 @@ function KYCVerification() {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleFileUpload = (field, event) => {
+  const handleFileUpload = async (field, event) => {
     const file = event.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
         toast.error('File size must be less than 5MB');
         return;
       }
-      handleInputChange(field, file);
+
+      // Upload file immediately
+      try {
+        setIsLoading(true);
+        const response = await uploadAPI.single(file, 'kyc');
+        if (response.success) {
+          handleInputChange(field, response.url);
+          handleInputChange(`${field}Name`, file.name); // Store filename for display
+          toast.success('File uploaded successfully');
+        } else {
+          toast.error('Failed to upload file');
+        }
+      } catch (error) {
+        console.error('Error uploading file:', error);
+        toast.error(error.response?.data?.message || 'Failed to upload file');
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -139,14 +157,36 @@ function KYCVerification() {
 
     setIsLoading(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const response = await kycAPI.submit({
+        fullName: formData.fullName,
+        phone: formData.phone,
+        dateOfBirth: formData.dateOfBirth,
+        address: formData.address,
+        state: formData.state,
+        lga: formData.lga,
+        documentType: formData.documentType,
+        documentNumber: formData.documentNumber,
+        documentFront: formData.documentFront,
+        documentBack: formData.documentBack,
+        services: formData.services,
+        experience: formData.experience,
+        bio: formData.bio,
+        profilePhoto: formData.profilePhoto,
+        bankName: formData.bankName,
+        accountNumber: formData.accountNumber,
+        accountName: formData.accountName,
+      });
 
-      updateUser({ kycStatus: 'under_review' });
-      toast.success('KYC documents submitted successfully!');
-      navigate('/provider/dashboard');
+      if (response.success) {
+        updateUser({ kycStatus: 'under_review' });
+        toast.success('KYC documents submitted successfully!');
+        navigate('/provider/dashboard');
+      } else {
+        toast.error(response.message || 'Failed to submit KYC documents');
+      }
     } catch (error) {
-      toast.error('Failed to submit KYC documents');
+      console.error('Error submitting KYC:', error);
+      toast.error(error.response?.data?.message || 'Failed to submit KYC documents');
     } finally {
       setIsLoading(false);
     }
@@ -268,7 +308,7 @@ function KYCVerification() {
                     {formData.documentFront ? (
                       <div className="flex items-center justify-center gap-2 text-[var(--primary)]">
                         <CheckCircle size={20} />
-                        <span className="text-sm">{formData.documentFront.name}</span>
+                        <span className="text-sm">{formData.documentFrontName || 'Uploaded'}</span>
                       </div>
                     ) : (
                       <>
@@ -294,7 +334,7 @@ function KYCVerification() {
                     {formData.documentBack ? (
                       <div className="flex items-center justify-center gap-2 text-[var(--primary)]">
                         <CheckCircle size={20} />
-                        <span className="text-sm">{formData.documentBack.name}</span>
+                        <span className="text-sm">{formData.documentBackName || 'Uploaded'}</span>
                       </div>
                     ) : (
                       <>
@@ -325,7 +365,7 @@ function KYCVerification() {
                 <div className="w-24 h-24 rounded-full bg-[var(--secondary)] border-2 border-dashed border-[var(--border)] flex items-center justify-center overflow-hidden">
                   {formData.profilePhoto ? (
                     <img
-                      src={URL.createObjectURL(formData.profilePhoto)}
+                      src={formData.profilePhoto}
                       alt="Profile"
                       className="w-full h-full object-cover"
                     />

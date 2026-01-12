@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../App';
 import {
@@ -18,12 +18,15 @@ import {
   Wind,
   CheckCircle,
   TrendingUp,
+  Loader2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../../components/ui/avatar';
 import { SERVICE_CATEGORIES, formatCurrency, formatDate } from '../../lib/constants';
+import { bookingsAPI, servicesAPI, usersAPI } from '../../services/apiClient';
 
 // Icon mapping
 const iconMap = {
@@ -33,51 +36,47 @@ const iconMap = {
 function CustomerDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [recentBookings, setRecentBookings] = useState([]);
+  const [nearbyProviders, setNearbyProviders] = useState([]);
 
-  // Mock data for recent bookings
-  const recentBookings = [
-    {
-      id: '1',
-      service: 'Plumbing',
-      provider: { name: 'John Okoro', avatar: null, rating: 4.8 },
-      status: 'completed',
-      date: new Date().toISOString(),
-      amount: 15000,
-    },
-    {
-      id: '2',
-      service: 'Electrical',
-      provider: { name: 'Ada Nweke', avatar: null, rating: 4.9 },
-      status: 'in_progress',
-      date: new Date().toISOString(),
-      amount: 25000,
-    },
-  ];
+  // Fetch dashboard data
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
 
-  // Mock nearby providers
-  const nearbyProviders = [
-    {
-      id: '1',
-      name: 'Mike Adebayo',
-      service: 'Electrician',
-      rating: 4.9,
-      jobs: 234,
-      distance: '0.8 km',
-      price: 'From NGN 5,000',
-      avatar: null,
-      verified: true,
-    },
-    {
-      id: '2',
-      name: 'Sarah Okonkwo',
-      service: 'Cleaner',
-      rating: 4.8,
-      jobs: 156,
-      distance: '1.2 km',
-      price: 'From NGN 3,000',
-      avatar: null,
-      verified: true,
-    },
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+      const [bookingsRes, providersRes] = await Promise.all([
+        bookingsAPI.getAll({ limit: 5 }),
+        usersAPI.getProviders({ limit: 6 })
+      ]);
+
+      if (bookingsRes.success) {
+        setRecentBookings(bookingsRes.data || []);
+      }
+      if (providersRes.success) {
+        setNearbyProviders(providersRes.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      toast.error('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 animate-spin text-[var(--primary)] mx-auto mb-4" />
+          <p className="text-[var(--muted-foreground)]">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
     {
       id: '3',
       name: 'David Eze',

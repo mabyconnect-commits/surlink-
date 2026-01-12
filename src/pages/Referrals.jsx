@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../App';
+import { referralsAPI } from '../services/apiClient';
 import {
   Users,
   Copy,
@@ -11,6 +12,7 @@ import {
   DollarSign,
   ChevronRight,
   Info,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
@@ -24,74 +26,45 @@ import { REFERRAL_RATES, formatCurrency, formatDate } from '../lib/constants';
 function Referrals() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
+  const [referralStats, setReferralStats] = useState(null);
+  const [referralHistory, setReferralHistory] = useState([]);
+  const [earningsHistory, setEarningsHistory] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   const referralLink = `https://surlink.com/register?ref=${user?.referralCode}`;
 
-  // Mock referral data
-  const referralStats = {
-    totalReferrals: 24,
-    activeReferrals: 18,
-    totalEarnings: 125000,
-    pendingEarnings: 15000,
-    level1Count: 12,
-    level2Count: 8,
-    level3Count: 4,
-  };
+  // Fetch referral data
+  useEffect(() => {
+    const fetchReferralData = async () => {
+      try {
+        setIsLoading(true);
+        const [statsResponse, historyResponse, earningsResponse] = await Promise.all([
+          referralsAPI.getStats(),
+          referralsAPI.getHistory(),
+          referralsAPI.getEarnings(),
+        ]);
 
-  const referralHistory = [
-    {
-      id: '1',
-      name: 'John Okoro',
-      level: 1,
-      joinedAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-      status: 'active',
-      earnings: 5000,
-      avatar: null,
-    },
-    {
-      id: '2',
-      name: 'Ada Nweke',
-      level: 1,
-      joinedAt: new Date(Date.now() - 86400000 * 10).toISOString(),
-      status: 'active',
-      earnings: 7500,
-      avatar: null,
-    },
-    {
-      id: '3',
-      name: 'Mike Eze',
-      level: 2,
-      joinedAt: new Date(Date.now() - 86400000 * 15).toISOString(),
-      status: 'active',
-      earnings: 3000,
-      avatar: null,
-    },
-    {
-      id: '4',
-      name: 'Sarah Ibrahim',
-      level: 2,
-      joinedAt: new Date(Date.now() - 86400000 * 20).toISOString(),
-      status: 'pending',
-      earnings: 0,
-      avatar: null,
-    },
-    {
-      id: '5',
-      name: 'David Okonkwo',
-      level: 3,
-      joinedAt: new Date(Date.now() - 86400000 * 25).toISOString(),
-      status: 'active',
-      earnings: 1500,
-      avatar: null,
-    },
-  ];
+        if (statsResponse.success) {
+          setReferralStats(statsResponse.data);
+        }
 
-  const earningsHistory = [
-    { id: '1', type: 'referral', description: 'Level 1 commission from John Okoro', amount: 2500, date: new Date(Date.now() - 86400000 * 2).toISOString() },
-    { id: '2', type: 'referral', description: 'Level 1 commission from Ada Nweke', amount: 3750, date: new Date(Date.now() - 86400000 * 5).toISOString() },
-    { id: '3', type: 'referral', description: 'Level 2 commission from Mike Eze', amount: 1500, date: new Date(Date.now() - 86400000 * 8).toISOString() },
-    { id: '4', type: 'bonus', description: 'Monthly referral bonus', amount: 5000, date: new Date(Date.now() - 86400000 * 30).toISOString() },
-  ];
+        if (historyResponse.success) {
+          setReferralHistory(historyResponse.data || []);
+        }
+
+        if (earningsResponse.success) {
+          setEarningsHistory(earningsResponse.data || []);
+        }
+      } catch (error) {
+        console.error('Error fetching referral data:', error);
+        toast.error(error.response?.data?.message || 'Failed to load referral data');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchReferralData();
+  }, []);
 
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
@@ -122,6 +95,23 @@ function Referrals() {
       default: return 'bg-[var(--muted)]';
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-[var(--primary)]" />
+      </div>
+    );
+  }
+
+  if (!referralStats) {
+    return (
+      <div className="text-center py-16">
+        <h2 className="text-xl font-semibold mb-4">Failed to load referral data</h2>
+        <Button onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 fade-in">

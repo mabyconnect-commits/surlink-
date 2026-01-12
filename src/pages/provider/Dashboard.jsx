@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../App';
 import {
@@ -14,63 +14,77 @@ import {
   Eye,
   MapPin,
   Shield,
+  Loader2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Progress } from '../../components/ui/progress';
 import { Avatar, AvatarFallback, AvatarImage } from '../../components/ui/avatar';
 import { formatCurrency, formatDate, formatTime } from '../../lib/constants';
+import { bookingsAPI, walletAPI } from '../../services/apiClient';
 
 function ProviderDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [recentJobs, setRecentJobs] = useState([]);
+  const [walletData, setWalletData] = useState(null);
 
   // Check KYC status
-  const kycPending = user?.kycStatus !== 'verified';
+  const kycPending = user?.kycStatus !== 'verified' && user?.kyc_status !== 'verified';
 
-  // Mock data
-  const stats = {
-    totalEarnings: 485000,
-    thisMonth: 125000,
-    pendingPayment: 35000,
-    completedJobs: 89,
-    activeJobs: 3,
-    rating: 4.8,
-    reviews: 76,
-    profileViews: 234,
+  // Fetch dashboard data
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
+
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+      const [bookingsRes, walletRes] = await Promise.all([
+        bookingsAPI.getAll({ limit: 10 }),
+        walletAPI.getBalance()
+      ]);
+
+      if (bookingsRes.success) {
+        setRecentJobs(bookingsRes.data || []);
+      }
+      if (walletRes.success) {
+        setWalletData(walletRes.data);
+      }
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      toast.error('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const recentJobs = [
-    {
-      id: '1',
-      service: 'Pipe Installation',
-      customer: { name: 'Grace Adeyemi', avatar: null },
-      status: 'in_progress',
-      date: new Date().toISOString(),
-      amount: 25000,
-      location: 'Lekki, Lagos',
-    },
-    {
-      id: '2',
-      service: 'Drain Unblocking',
-      customer: { name: 'Samuel Nnamdi', avatar: null },
-      status: 'pending',
-      date: new Date(Date.now() + 86400000).toISOString(),
-      amount: 15000,
-      location: 'Victoria Island, Lagos',
-    },
-    {
-      id: '3',
-      service: 'Water Heater Repair',
-      customer: { name: 'Amaka Obi', avatar: null },
-      status: 'completed',
-      date: new Date(Date.now() - 86400000).toISOString(),
-      amount: 35000,
-      location: 'Ikeja, Lagos',
-    },
-  ];
+  // Calculate stats from real data
+  const stats = {
+    totalEarnings: walletData?.total_earnings || walletData?.totalEarnings || 0,
+    thisMonth: walletData?.this_month || walletData?.thisMonth || 0,
+    pendingPayment: walletData?.pending_balance || walletData?.pendingBalance || 0,
+    completedJobs: recentJobs.filter(j => j.status === 'completed').length,
+    activeJobs: recentJobs.filter(j => j.status === 'in_progress' || j.status === 'pending').length,
+    rating: user?.rating || 0,
+    reviews: user?.total_reviews || user?.totalReviews || 0,
+    profileViews: user?.profile_views || user?.profileViews || 0,
+  };
 
   const upcomingJobs = recentJobs.filter(j => j.status === 'pending' || j.status === 'in_progress');
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 animate-spin text-[var(--primary)] mx-auto mb-4" />
+          <p className="text-[var(--muted-foreground)]">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 fade-in">

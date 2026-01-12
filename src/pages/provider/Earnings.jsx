@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { toast } from 'sonner';
+import { walletAPI } from '../../services/apiClient';
 import {
   DollarSign,
   TrendingUp,
@@ -10,6 +12,7 @@ import {
   ArrowDownLeft,
   Clock,
   CheckCircle,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
@@ -26,36 +29,66 @@ import { formatCurrency, formatDate } from '../../lib/constants';
 function ProviderEarnings() {
   const [period, setPeriod] = useState('this_month');
   const [activeTab, setActiveTab] = useState('overview');
+  const [transactions, setTransactions] = useState([]);
+  const [balance, setBalance] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Mock earnings data
-  const earningsData = {
-    totalEarnings: 485000,
-    thisMonth: 125000,
-    lastMonth: 98000,
-    pendingPayment: 35000,
-    completedJobs: 89,
-    averageJobValue: 15500,
-    growth: 27.6,
+  // Fetch wallet data
+  useEffect(() => {
+    const fetchWalletData = async () => {
+      try {
+        setIsLoading(true);
+        const [balanceResponse, transactionsResponse] = await Promise.all([
+          walletAPI.getBalance(),
+          walletAPI.getTransactions({ period }),
+        ]);
+
+        if (balanceResponse.success) {
+          setBalance(balanceResponse.data);
+        }
+
+        if (transactionsResponse.success) {
+          setTransactions(transactionsResponse.data || []);
+        }
+      } catch (error) {
+        console.error('Error fetching wallet data:', error);
+        toast.error(error.response?.data?.message || 'Failed to load earnings data');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchWalletData();
+  }, [period]);
+
+  const earningsData = balance ? {
+    totalEarnings: balance.totalEarnings || 0,
+    thisMonth: balance.thisMonth || 0,
+    lastMonth: balance.lastMonth || 0,
+    pendingPayment: balance.pendingPayment || 0,
+    completedJobs: balance.completedJobs || 0,
+    averageJobValue: balance.averageJobValue || 0,
+    growth: balance.growth || 0,
+  } : {
+    totalEarnings: 0,
+    thisMonth: 0,
+    lastMonth: 0,
+    pendingPayment: 0,
+    completedJobs: 0,
+    averageJobValue: 0,
+    growth: 0,
   };
 
-  const transactions = [
-    { id: '1', type: 'credit', description: 'Pipe Installation - Grace Adeyemi', amount: 25000, fee: 3750, net: 21250, status: 'completed', date: new Date(Date.now() - 86400000).toISOString() },
-    { id: '2', type: 'credit', description: 'Drain Unblocking - Samuel Nnamdi', amount: 15000, fee: 2250, net: 12750, status: 'pending', date: new Date(Date.now() - 86400000 * 2).toISOString() },
-    { id: '3', type: 'credit', description: 'AC Servicing - Amaka Obi', amount: 45000, fee: 6750, net: 38250, status: 'completed', date: new Date(Date.now() - 86400000 * 5).toISOString() },
-    { id: '4', type: 'referral', description: 'Referral commission - Level 1', amount: 2500, fee: 0, net: 2500, status: 'completed', date: new Date(Date.now() - 86400000 * 7).toISOString() },
-    { id: '5', type: 'credit', description: 'Water Heater Repair - Tunde Bakare', amount: 35000, fee: 5250, net: 29750, status: 'completed', date: new Date(Date.now() - 86400000 * 10).toISOString() },
-  ];
+  const monthlyEarnings = balance?.monthlyEarnings || [];
+  const maxEarnings = monthlyEarnings.length > 0 ? Math.max(...monthlyEarnings.map(m => m.earnings)) : 1;
 
-  const monthlyEarnings = [
-    { month: 'Jan', earnings: 85000 },
-    { month: 'Feb', earnings: 92000 },
-    { month: 'Mar', earnings: 78000 },
-    { month: 'Apr', earnings: 105000 },
-    { month: 'May', earnings: 98000 },
-    { month: 'Jun', earnings: 125000 },
-  ];
-
-  const maxEarnings = Math.max(...monthlyEarnings.map(m => m.earnings));
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-[var(--primary)]" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 fade-in">

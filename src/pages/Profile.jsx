@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../App';
+import { authAPI, reviewsAPI, uploadAPI } from '../services/apiClient';
 import {
   User,
   Mail,
@@ -36,72 +37,124 @@ function Profile() {
   const { user, updateUser } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('profile');
+  const [reviews, setReviews] = useState([]);
+  const [profileData, setProfileData] = useState(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
   const isProvider = user?.role === 'provider';
 
   const [formData, setFormData] = useState({
-    name: user?.name || '',
-    email: user?.email || '',
-    phone: user?.phone || '+234 800 000 0000',
-    bio: 'Professional service provider with years of experience. Committed to delivering quality work.',
-    address: '15 Admiralty Way, Lekki Phase 1',
-    state: 'Lagos',
-    services: ['plumbing', 'ac_repair'],
-    experience: '5-10',
-    availability: 'weekdays',
+    name: '',
+    email: '',
+    phone: '',
+    bio: '',
+    address: '',
+    state: '',
+    services: [],
+    experience: '',
+    availability: '',
   });
 
-  // Mock provider stats
-  const providerStats = {
-    rating: 4.8,
-    totalReviews: 156,
-    completedJobs: 234,
-    responseRate: 98,
-    memberSince: new Date(Date.now() - 86400000 * 365).toISOString(),
-  };
+  // Fetch profile data
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        setIsLoading(true);
+        const response = await authAPI.getProfile();
+        if (response.success) {
+          const profile = response.data;
+          setProfileData(profile);
+          setFormData({
+            name: profile.name || '',
+            email: profile.email || '',
+            phone: profile.phone || '',
+            bio: profile.bio || '',
+            address: profile.address || '',
+            state: profile.state || '',
+            services: profile.services || [],
+            experience: profile.experience || '',
+            availability: profile.availability || '',
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching profile:', error);
+        toast.error(error.response?.data?.message || 'Failed to load profile');
+      } finally {
+        setIsLoading(false);
+      }
+    };
 
-  // Mock reviews
-  const reviews = [
-    {
-      id: '1',
-      customer: { name: 'Grace Adeyemi', avatar: null },
-      rating: 5,
-      comment: 'Excellent service! Very professional and completed the work on time.',
-      date: new Date(Date.now() - 86400000 * 5).toISOString(),
-      service: 'Pipe Installation',
-    },
-    {
-      id: '2',
-      customer: { name: 'Samuel Nnamdi', avatar: null },
-      rating: 5,
-      comment: 'Great work, very knowledgeable and efficient.',
-      date: new Date(Date.now() - 86400000 * 12).toISOString(),
-      service: 'Drain Unblocking',
-    },
-    {
-      id: '3',
-      customer: { name: 'Amaka Obi', avatar: null },
-      rating: 4,
-      comment: 'Good service overall. Would recommend.',
-      date: new Date(Date.now() - 86400000 * 20).toISOString(),
-      service: 'AC Servicing',
-    },
-  ];
+    fetchProfile();
+  }, []);
+
+  // Fetch reviews if provider
+  useEffect(() => {
+    const fetchReviews = async () => {
+      if (isProvider) {
+        try {
+          const response = await reviewsAPI.getMyReviews();
+          if (response.success) {
+            setReviews(response.data || []);
+          }
+        } catch (error) {
+          console.error('Error fetching reviews:', error);
+        }
+      }
+    };
+
+    if (!isLoading) {
+      fetchReviews();
+    }
+  }, [isProvider, isLoading]);
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+  const handlePhotoUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('File size must be less than 5MB');
+      return;
+    }
+
+    setIsUploadingPhoto(true);
+    try {
+      const response = await uploadAPI.single(file, 'profiles');
+      if (response.success) {
+        const updateResponse = await authAPI.updateProfile({ avatar: response.url });
+        if (updateResponse.success) {
+          updateUser({ avatar: response.url });
+          toast.success('Profile photo updated successfully!');
+        }
+      }
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      toast.error(error.response?.data?.message || 'Failed to upload photo');
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      updateUser({ name: formData.name });
-      toast.success('Profile updated successfully!');
-      setIsEditing(false);
+      const response = await authAPI.updateProfile(formData);
+      if (response.success) {
+        updateUser({ name: formData.name });
+        setProfileData(response.data);
+        toast.success('Profile updated successfully!');
+        setIsEditing(false);
+      } else {
+        toast.error(response.message || 'Failed to update profile');
+      }
     } catch (error) {
-      toast.error('Failed to update profile');
+      console.error('Error updating profile:', error);
+      toast.error(error.response?.data?.message || 'Failed to update profile');
     } finally {
       setIsSaving(false);
     }
@@ -110,6 +163,22 @@ function Profile() {
   const getInitials = (name) => {
     return name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-[var(--primary)]" />
+      </div>
+    );
+  }
+
+  const providerStats = profileData ? {
+    rating: profileData.rating || 0,
+    totalReviews: profileData.totalReviews || 0,
+    completedJobs: profileData.completedJobs || 0,
+    responseRate: profileData.responseRate || 0,
+    memberSince: profileData.createdAt || new Date().toISOString(),
+  } : {};
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 fade-in">
@@ -125,9 +194,20 @@ function Profile() {
                   {getInitials(user?.name)}
                 </AvatarFallback>
               </Avatar>
-              <button className="absolute bottom-0 right-0 w-8 h-8 bg-[var(--primary)] rounded-full flex items-center justify-center text-white hover:bg-[var(--surlink-teal-dark)] transition-colors">
-                <Camera size={16} />
-              </button>
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                id="avatar-upload"
+                onChange={handlePhotoUpload}
+                disabled={isUploadingPhoto}
+              />
+              <label
+                htmlFor="avatar-upload"
+                className="absolute bottom-0 right-0 w-8 h-8 bg-[var(--primary)] rounded-full flex items-center justify-center text-white hover:bg-[var(--surlink-teal-dark)] transition-colors cursor-pointer"
+              >
+                {isUploadingPhoto ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+              </label>
             </div>
 
             {/* Info */}

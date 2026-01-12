@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Plus,
   Edit2,
@@ -33,45 +33,35 @@ import {
   SelectValue,
 } from '../../components/ui/select';
 import { SERVICE_CATEGORIES, formatCurrency } from '../../lib/constants';
+import { servicesAPI } from '../../services/apiClient';
 
 function ProviderServices() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingService, setEditingService] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [services, setServices] = useState([]);
 
-  // Mock services data
-  const [services, setServices] = useState([
-    {
-      id: '1',
-      category: 'plumbing',
-      title: 'Pipe Installation',
-      description: 'Professional installation of water pipes for residential and commercial buildings.',
-      priceType: 'fixed',
-      price: 25000,
-      duration: '2-4 hours',
-      isActive: true,
-    },
-    {
-      id: '2',
-      category: 'plumbing',
-      title: 'Drain Unblocking',
-      description: 'Fast and effective drain cleaning and unblocking services.',
-      priceType: 'fixed',
-      price: 15000,
-      duration: '1-2 hours',
-      isActive: true,
-    },
-    {
-      id: '3',
-      category: 'ac_repair',
-      title: 'AC Servicing',
-      description: 'Complete air conditioning maintenance and repair services.',
-      priceType: 'hourly',
-      price: 10000,
-      duration: '1-3 hours',
-      isActive: false,
-    },
-  ]);
+  // Fetch services from API
+  useEffect(() => {
+    fetchServices();
+  }, []);
+
+  const fetchServices = async () => {
+    try {
+      setLoading(true);
+      const response = await servicesAPI.getAll();
+      if (response.success) {
+        setServices(response.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching services:', error);
+      toast.error('Failed to load services');
+      setServices([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const [formData, setFormData] = useState({
     category: '',
@@ -119,52 +109,84 @@ function ProviderServices() {
 
     setIsSaving(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      const serviceData = {
+        category: formData.category,
+        title: formData.title,
+        description: formData.description,
+        price_type: formData.priceType,
+        price: parseFloat(formData.price),
+        duration: formData.duration,
+      };
 
       if (editingService) {
-        setServices(prev => prev.map(s =>
-          s.id === editingService.id
-            ? { ...s, ...formData, price: parseFloat(formData.price) }
-            : s
-        ));
-        toast.success('Service updated successfully!');
+        const response = await servicesAPI.update(editingService.id, serviceData);
+        if (response.success) {
+          toast.success('Service updated successfully!');
+          fetchServices();
+        }
       } else {
-        const newService = {
-          id: Date.now().toString(),
-          ...formData,
-          price: parseFloat(formData.price),
-          isActive: true,
-        };
-        setServices(prev => [...prev, newService]);
-        toast.success('Service added successfully!');
+        const response = await servicesAPI.create(serviceData);
+        if (response.success) {
+          toast.success('Service added successfully!');
+          fetchServices();
+        }
       }
 
       setShowAddDialog(false);
       resetForm();
     } catch (error) {
-      toast.error('Failed to save service');
+      console.error('Error saving service:', error);
+      toast.error(error.response?.data?.message || 'Failed to save service');
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleToggleActive = async (serviceId) => {
-    setServices(prev => prev.map(s =>
-      s.id === serviceId ? { ...s, isActive: !s.isActive } : s
-    ));
-    toast.success('Service status updated');
+    try {
+      const service = services.find(s => s.id === serviceId);
+      const response = await servicesAPI.update(serviceId, {
+        is_active: !service.isActive
+      });
+      if (response.success) {
+        toast.success('Service status updated');
+        fetchServices();
+      }
+    } catch (error) {
+      console.error('Error toggling service status:', error);
+      toast.error('Failed to update service status');
+    }
   };
 
   const handleDelete = async (serviceId) => {
     if (window.confirm('Are you sure you want to delete this service?')) {
-      setServices(prev => prev.filter(s => s.id !== serviceId));
-      toast.success('Service deleted successfully');
+      try {
+        const response = await servicesAPI.delete(serviceId);
+        if (response.success) {
+          toast.success('Service deleted successfully');
+          fetchServices();
+        }
+      } catch (error) {
+        console.error('Error deleting service:', error);
+        toast.error('Failed to delete service');
+      }
     }
   };
 
   const getCategoryName = (categoryId) => {
     return SERVICE_CATEGORIES.find(c => c.id === categoryId)?.name || categoryId;
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 animate-spin text-[var(--primary)] mx-auto mb-4" />
+          <p className="text-[var(--muted-foreground)]">Loading services...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 fade-in">

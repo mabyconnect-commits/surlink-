@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../App';
 import {
   Search,
@@ -10,61 +10,95 @@ import {
   CheckCheck,
   Clock,
   ArrowLeft,
+  Loader2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { formatTime, formatDate } from '../lib/constants';
+import { messagesAPI } from '../services/apiClient';
 
 function Messages() {
   const { user } = useAuth();
   const [selectedChat, setSelectedChat] = useState(null);
   const [message, setMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [conversations, setConversations] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [sending, setSending] = useState(false);
 
   const isProvider = user?.role === 'provider';
 
-  // Mock conversations data
-  const conversations = [
-    {
-      id: '1',
-      participant: { id: 'u1', name: 'Grace Adeyemi', avatar: null, online: true },
-      lastMessage: { text: 'When will you be available?', time: new Date(Date.now() - 300000).toISOString(), unread: 2 },
-      booking: { service: 'Pipe Installation', status: 'in_progress' },
-    },
-    {
-      id: '2',
-      participant: { id: 'u2', name: 'Samuel Nnamdi', avatar: null, online: false },
-      lastMessage: { text: 'Thank you for the great work!', time: new Date(Date.now() - 3600000).toISOString(), unread: 0 },
-      booking: { service: 'Drain Unblocking', status: 'completed' },
-    },
-    {
-      id: '3',
-      participant: { id: 'u3', name: 'Amaka Obi', avatar: null, online: true },
-      lastMessage: { text: 'I have sent the location', time: new Date(Date.now() - 86400000).toISOString(), unread: 0 },
-      booking: { service: 'AC Servicing', status: 'pending' },
-    },
-  ];
+  // Fetch conversations from API
+  useEffect(() => {
+    fetchConversations();
+  }, []);
 
-  const messages = [
-    { id: '1', senderId: 'u1', text: 'Hi, I need help with my water pipes.', time: new Date(Date.now() - 7200000).toISOString(), status: 'read' },
-    { id: '2', senderId: user?.id, text: 'Hello! I can help you with that. What seems to be the problem?', time: new Date(Date.now() - 7000000).toISOString(), status: 'read' },
-    { id: '3', senderId: 'u1', text: 'There is a leak in my bathroom. Water is dripping from the ceiling.', time: new Date(Date.now() - 6800000).toISOString(), status: 'read' },
-    { id: '4', senderId: user?.id, text: 'I see. This sounds like it could be a pipe joint issue. I can come take a look tomorrow. Would 10 AM work for you?', time: new Date(Date.now() - 6600000).toISOString(), status: 'read' },
-    { id: '5', senderId: 'u1', text: 'Yes, 10 AM works perfectly. Thank you!', time: new Date(Date.now() - 6400000).toISOString(), status: 'read' },
-    { id: '6', senderId: user?.id, text: 'Great! I will bring the necessary tools. See you tomorrow.', time: new Date(Date.now() - 6200000).toISOString(), status: 'read' },
-    { id: '7', senderId: 'u1', text: 'When will you be available?', time: new Date(Date.now() - 300000).toISOString(), status: 'delivered' },
-  ];
+  // Fetch messages when a chat is selected
+  useEffect(() => {
+    if (selectedChat) {
+      fetchMessages(selectedChat.id);
+    }
+  }, [selectedChat]);
+
+  const fetchConversations = async () => {
+    try {
+      setLoading(true);
+      const response = await messagesAPI.getConversations();
+      if (response.success) {
+        setConversations(response.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching conversations:', error);
+      toast.error('Failed to load conversations');
+      setConversations([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchMessages = async (conversationId) => {
+    try {
+      setLoadingMessages(true);
+      const response = await messagesAPI.getMessages(conversationId);
+      if (response.success) {
+        setMessages(response.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching messages:', error);
+      toast.error('Failed to load messages');
+      setMessages([]);
+    } finally {
+      setLoadingMessages(false);
+    }
+  };
 
   const filteredConversations = conversations.filter(conv =>
-    conv.participant.name.toLowerCase().includes(searchQuery.toLowerCase())
+    conv.participant?.name?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleSendMessage = (e) => {
+  const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (message.trim()) {
-      // Handle send message
-      setMessage('');
+    if (!message.trim() || !selectedChat) return;
+
+    setSending(true);
+    try {
+      const response = await messagesAPI.sendMessage(selectedChat.id, message.trim());
+      if (response.success) {
+        setMessage('');
+        // Refresh messages
+        fetchMessages(selectedChat.id);
+        // Refresh conversations to update last message
+        fetchConversations();
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+      toast.error(error.response?.data?.message || 'Failed to send message');
+    } finally {
+      setSending(false);
     }
   };
 

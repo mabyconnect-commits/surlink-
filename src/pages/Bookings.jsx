@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../App';
 import {
@@ -17,7 +17,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '../components/ui/button'; 
+import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
@@ -31,6 +31,7 @@ import {
   DialogFooter,
 } from '../components/ui/dialog';
 import { formatCurrency, formatDate, formatTime, formatDateTime } from '../lib/constants';
+import { bookingsAPI } from '../services/apiClient';
 
 function Bookings() {
   const navigate = useNavigate();
@@ -40,73 +41,31 @@ function Bookings() {
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   const isProvider = user?.role === 'provider';
 
-  // Mock bookings data
-  const bookings = [
-    {
-      id: '1',
-      service: 'Pipe Installation',
-      category: 'plumbing',
-      description: 'Install new water pipes in the bathroom',
-      provider: { id: 'p1', name: 'Chinedu Okafor', avatar: null, rating: 4.9, phone: '+234 800 000 0001' },
-      customer: { id: 'c1', name: 'Grace Adeyemi', avatar: null, phone: '+234 800 000 0002' },
-      status: 'in_progress',
-      date: new Date().toISOString(),
-      scheduledTime: '10:00 AM - 12:00 PM',
-      location: '15 Admiralty Way, Lekki Phase 1, Lagos',
-      amount: 25000,
-      createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-    },
-    {
-      id: '2',
-      service: 'Drain Unblocking',
-      category: 'plumbing',
-      description: 'Kitchen sink is blocked and needs clearing',
-      provider: { id: 'p2', name: 'Mike Adebayo', avatar: null, rating: 4.8, phone: '+234 800 000 0003' },
-      customer: { id: 'c2', name: 'Samuel Nnamdi', avatar: null, phone: '+234 800 000 0004' },
-      status: 'pending',
-      date: new Date(Date.now() + 86400000).toISOString(),
-      scheduledTime: '2:00 PM - 4:00 PM',
-      location: '28 Ozumba Mbadiwe Ave, Victoria Island, Lagos',
-      amount: 15000,
-      createdAt: new Date(Date.now() - 86400000).toISOString(),
-    },
-    {
-      id: '3',
-      service: 'AC Servicing',
-      category: 'ac_repair',
-      description: 'Annual maintenance for 3 split units',
-      provider: { id: 'p3', name: 'David Eze', avatar: null, rating: 4.7, phone: '+234 800 000 0005' },
-      customer: { id: 'c3', name: 'Amaka Obi', avatar: null, phone: '+234 800 000 0006' },
-      status: 'completed',
-      date: new Date(Date.now() - 86400000 * 3).toISOString(),
-      scheduledTime: '9:00 AM - 1:00 PM',
-      location: '5 Allen Avenue, Ikeja, Lagos',
-      amount: 45000,
-      createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-      completedAt: new Date(Date.now() - 86400000 * 3).toISOString(),
-      rating: 5,
-      review: 'Excellent service! Very professional and thorough.',
-    },
-    {
-      id: '4',
-      service: 'Home Cleaning',
-      category: 'cleaning',
-      description: 'Deep cleaning for 3 bedroom apartment',
-      provider: { id: 'p4', name: 'Fatima Ibrahim', avatar: null, rating: 4.9, phone: '+234 800 000 0007' },
-      customer: { id: 'c4', name: 'Tunde Bakare', avatar: null, phone: '+234 800 000 0008' },
-      status: 'cancelled',
-      date: new Date(Date.now() - 86400000 * 2).toISOString(),
-      scheduledTime: '8:00 AM - 12:00 PM',
-      location: '10 Bourdillon Road, Ikoyi, Lagos',
-      amount: 20000,
-      createdAt: new Date(Date.now() - 86400000 * 7).toISOString(),
-      cancelledAt: new Date(Date.now() - 86400000 * 3).toISOString(),
-      cancelReason: 'Customer requested cancellation due to travel plans',
-    },
-  ];
+  // Fetch bookings from API
+  useEffect(() => {
+    fetchBookings();
+  }, []);
+
+  const fetchBookings = async () => {
+    try {
+      setLoading(true);
+      const response = await bookingsAPI.getAll();
+      if (response.success) {
+        setBookings(response.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching bookings:', error);
+      toast.error('Failed to load bookings');
+      setBookings([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredBookings = bookings.filter((booking) => {
     const matchesSearch =
@@ -138,16 +97,62 @@ function Bookings() {
   };
 
   const handleCancelBooking = async () => {
+    if (!selectedBooking) return;
+
     setIsCancelling(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      toast.success('Booking cancelled successfully');
-      setShowCancelDialog(false);
-      setSelectedBooking(null);
+      const response = await bookingsAPI.cancel(selectedBooking.id, 'Cancelled by user');
+      if (response.success) {
+        toast.success('Booking cancelled successfully');
+        setShowCancelDialog(false);
+        setSelectedBooking(null);
+        // Refresh bookings list
+        fetchBookings();
+      }
     } catch (error) {
-      toast.error('Failed to cancel booking');
+      console.error('Error cancelling booking:', error);
+      toast.error(error.response?.data?.message || 'Failed to cancel booking');
     } finally {
       setIsCancelling(false);
+    }
+  };
+
+  const handleAcceptBooking = async (bookingId) => {
+    try {
+      const response = await bookingsAPI.accept(bookingId);
+      if (response.success) {
+        toast.success('Booking accepted successfully');
+        fetchBookings();
+      }
+    } catch (error) {
+      console.error('Error accepting booking:', error);
+      toast.error(error.response?.data?.message || 'Failed to accept booking');
+    }
+  };
+
+  const handleStartBooking = async (bookingId) => {
+    try {
+      const response = await bookingsAPI.start(bookingId);
+      if (response.success) {
+        toast.success('Booking started successfully');
+        fetchBookings();
+      }
+    } catch (error) {
+      console.error('Error starting booking:', error);
+      toast.error(error.response?.data?.message || 'Failed to start booking');
+    }
+  };
+
+  const handleCompleteBooking = async (bookingId) => {
+    try {
+      const response = await bookingsAPI.complete(bookingId);
+      if (response.success) {
+        toast.success('Booking completed successfully');
+        fetchBookings();
+      }
+    } catch (error) {
+      console.error('Error completing booking:', error);
+      toast.error(error.response?.data?.message || 'Failed to complete booking');
     }
   };
 
@@ -157,6 +162,17 @@ function Bookings() {
     inProgress: bookings.filter(b => b.status === 'in_progress').length,
     completed: bookings.filter(b => b.status === 'completed').length,
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 animate-spin text-[var(--primary)] mx-auto mb-4" />
+          <p className="text-[var(--muted-foreground)]">Loading bookings...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 fade-in">
@@ -350,12 +366,38 @@ function Bookings() {
                                 </Button>
                               )}
                               {isProvider && booking.status === 'pending' && (
-                                <Button size="sm" className="ml-auto">
+                                <Button
+                                  size="sm"
+                                  className="ml-auto"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleAcceptBooking(booking.id);
+                                  }}
+                                >
                                   Accept Job
                                 </Button>
                               )}
+                              {isProvider && booking.status === 'accepted' && (
+                                <Button
+                                  size="sm"
+                                  className="ml-auto"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleStartBooking(booking.id);
+                                  }}
+                                >
+                                  Start Job
+                                </Button>
+                              )}
                               {isProvider && booking.status === 'in_progress' && (
-                                <Button size="sm" className="ml-auto">
+                                <Button
+                                  size="sm"
+                                  className="ml-auto"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCompleteBooking(booking.id);
+                                  }}
+                                >
                                   Mark Complete
                                 </Button>
                               )}

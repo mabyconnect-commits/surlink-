@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { usersAPI, reviewsAPI, bookingsAPI } from '../services/apiClient';
 import {
   Star,
   MapPin,
@@ -14,6 +15,7 @@ import {
   Share2,
   Heart,
   DollarSign,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
@@ -39,82 +41,80 @@ function ProviderProfile() {
   const [showBookingDialog, setShowBookingDialog] = useState(false);
   const [selectedService, setSelectedService] = useState(null);
   const [isFavorite, setIsFavorite] = useState(false);
+  const [provider, setProvider] = useState(null);
+  const [reviews, setReviews] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [bookingDescription, setBookingDescription] = useState('');
+  const [isBooking, setIsBooking] = useState(false);
 
-  // Mock provider data
-  const provider = {
-    id: providerId,
-    name: 'Chinedu Okafor',
-    avatar: null,
-    verified: true,
-    rating: 4.9,
-    reviews: 234,
-    completedJobs: 312,
-    responseTime: '< 30 min',
-    memberSince: new Date(Date.now() - 86400000 * 730).toISOString(),
-    location: 'Lekki, Lagos',
-    distance: 0.8,
-    bio: 'Professional plumber with over 10 years of experience in residential and commercial plumbing. I specialize in pipe installation, repairs, maintenance, and emergency services. Committed to delivering quality work and excellent customer service.',
-    services: [
-      { id: '1', name: 'Pipe Installation', price: 25000, duration: '2-4 hours' },
-      { id: '2', name: 'Drain Unblocking', price: 15000, duration: '1-2 hours' },
-      { id: '3', name: 'Leak Repair', price: 10000, duration: '1-3 hours' },
-      { id: '4', name: 'Water Heater Installation', price: 35000, duration: '3-5 hours' },
-    ],
-    availability: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
-    workingHours: '8:00 AM - 6:00 PM',
-    phone: '+234 800 000 0001',
-  };
+  // Fetch provider details
+  useEffect(() => {
+    const fetchProviderData = async () => {
+      try {
+        setIsLoading(true);
+        const [providerResponse, reviewsResponse] = await Promise.all([
+          usersAPI.getProviderById(providerId),
+          reviewsAPI.getProviderReviews(providerId),
+        ]);
 
-  const reviews = [
-    {
-      id: '1',
-      customer: { name: 'Grace Adeyemi', avatar: null },
-      rating: 5,
-      comment: 'Excellent service! Chinedu was very professional and completed the work quickly. Highly recommend!',
-      date: new Date(Date.now() - 86400000 * 5).toISOString(),
-      service: 'Pipe Installation',
-    },
-    {
-      id: '2',
-      customer: { name: 'Samuel Nnamdi', avatar: null },
-      rating: 5,
-      comment: 'Very knowledgeable and efficient. Fixed my drain problem in no time.',
-      date: new Date(Date.now() - 86400000 * 12).toISOString(),
-      service: 'Drain Unblocking',
-    },
-    {
-      id: '3',
-      customer: { name: 'Amaka Obi', avatar: null },
-      rating: 4,
-      comment: 'Good work overall. Arrived on time and was very thorough.',
-      date: new Date(Date.now() - 86400000 * 20).toISOString(),
-      service: 'Leak Repair',
-    },
-    {
-      id: '4',
-      customer: { name: 'Tunde Bakare', avatar: null },
-      rating: 5,
-      comment: 'Best plumber I have worked with. Will definitely use again!',
-      date: new Date(Date.now() - 86400000 * 30).toISOString(),
-      service: 'Water Heater Installation',
-    },
-  ];
+        if (providerResponse.success) {
+          setProvider(providerResponse.data);
+        } else {
+          toast.error('Failed to load provider details');
+          navigate('/search');
+        }
 
-  const portfolio = [
-    { id: '1', title: 'Kitchen Renovation', image: null },
-    { id: '2', title: 'Bathroom Plumbing', image: null },
-    { id: '3', title: 'Office Installation', image: null },
-  ];
+        if (reviewsResponse.success) {
+          setReviews(reviewsResponse.data || []);
+        }
+      } catch (error) {
+        console.error('Error fetching provider:', error);
+        toast.error(error.response?.data?.message || 'Failed to load provider details');
+        navigate('/search');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (providerId) {
+      fetchProviderData();
+    }
+  }, [providerId, navigate]);
 
   const handleBookService = (service) => {
     setSelectedService(service);
     setShowBookingDialog(true);
   };
 
-  const handleConfirmBooking = () => {
-    toast.success('Booking request sent!');
-    setShowBookingDialog(false);
-    navigate('/bookings');
+  const handleConfirmBooking = async () => {
+    if (!bookingDescription.trim()) {
+      toast.error('Please describe your job requirements');
+      return;
+    }
+
+    setIsBooking(true);
+    try {
+      const response = await bookingsAPI.create({
+        providerId: providerId,
+        serviceId: selectedService.id,
+        description: bookingDescription,
+        amount: selectedService.price,
+      });
+
+      if (response.success) {
+        toast.success('Booking request sent successfully!');
+        setShowBookingDialog(false);
+        setBookingDescription('');
+        navigate('/bookings');
+      } else {
+        toast.error(response.message || 'Failed to create booking');
+      }
+    } catch (error) {
+      console.error('Error creating booking:', error);
+      toast.error(error.response?.data?.message || 'Failed to create booking');
+    } finally {
+      setIsBooking(false);
+    }
   };
 
   const handleShare = () => {
@@ -133,6 +133,23 @@ function ProviderProfile() {
   const getInitials = (name) => {
     return name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-[var(--primary)]" />
+      </div>
+    );
+  }
+
+  if (!provider) {
+    return (
+      <div className="text-center py-16">
+        <h2 className="text-xl font-semibold mb-4">Provider not found</h2>
+        <Button onClick={() => navigate('/search')}>Go to Search</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 fade-in">
@@ -395,6 +412,8 @@ function ProviderProfile() {
                 <Textarea
                   placeholder="Tell us more about what you need done..."
                   rows={4}
+                  value={bookingDescription}
+                  onChange={(e) => setBookingDescription(e.target.value)}
                 />
               </div>
 
@@ -411,11 +430,18 @@ function ProviderProfile() {
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowBookingDialog(false)}>
+            <Button variant="outline" onClick={() => setShowBookingDialog(false)} disabled={isBooking}>
               Cancel
             </Button>
-            <Button onClick={handleConfirmBooking}>
-              Send Booking Request
+            <Button onClick={handleConfirmBooking} disabled={isBooking}>
+              {isBooking ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                'Send Booking Request'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../App';
 import {
   Wallet as WalletIcon,
@@ -38,6 +38,7 @@ import {
   SelectValue,
 } from '../components/ui/select';
 import { formatCurrency, formatDate, formatDateTime, MIN_WITHDRAWAL } from '../lib/constants';
+import { walletAPI } from '../services/apiClient';
 
 function Wallet() {
   const { user } = useAuth();
@@ -48,75 +49,64 @@ function Wallet() {
   const [isFunding, setIsFunding] = useState(false);
   const [showWithdrawDialog, setShowWithdrawDialog] = useState(false);
   const [showFundDialog, setShowFundDialog] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [walletData, setWalletData] = useState(null);
+  const [transactions, setTransactions] = useState([]);
+  const [bankAccounts, setBankAccounts] = useState([]);
+  const [selectedBankAccount, setSelectedBankAccount] = useState('');
 
   const isProvider = user?.role === 'provider';
 
-  // Mock wallet data
-  const walletData = {
-    balance: 185000,
-    pendingBalance: 35000,
-    totalEarnings: 485000,
-    totalSpent: 150000,
-    escrowBalance: 25000,
+  // Fetch wallet data from API
+  useEffect(() => {
+    fetchWalletData();
+    fetchTransactions();
+    fetchBankAccounts();
+  }, []);
+
+  const fetchWalletData = async () => {
+    try {
+      const response = await walletAPI.getBalance();
+      if (response.success) {
+        setWalletData(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching wallet balance:', error);
+      toast.error('Failed to load wallet balance');
+    }
   };
 
-  const transactions = [
-    {
-      id: '1',
-      type: 'credit',
-      category: 'payment',
-      description: 'Payment for Plumbing Service',
-      amount: 25000,
-      status: 'completed',
-      date: new Date(Date.now() - 86400000).toISOString(),
-      reference: 'TXN001234',
-    },
-    {
-      id: '2',
-      type: 'debit',
-      category: 'withdrawal',
-      description: 'Withdrawal to GTBank - ****4521',
-      amount: 50000,
-      status: 'completed',
-      date: new Date(Date.now() - 86400000 * 3).toISOString(),
-      reference: 'WTH001235',
-    },
-    {
-      id: '3',
-      type: 'credit',
-      category: 'referral',
-      description: 'Referral commission - Level 1',
-      amount: 2500,
-      status: 'completed',
-      date: new Date(Date.now() - 86400000 * 5).toISOString(),
-      reference: 'REF001236',
-    },
-    {
-      id: '4',
-      type: 'credit',
-      category: 'payment',
-      description: 'Payment for Electrical Service',
-      amount: 35000,
-      status: 'pending',
-      date: new Date(Date.now() - 86400000 * 7).toISOString(),
-      reference: 'TXN001237',
-    },
-    {
-      id: '5',
-      type: 'debit',
-      category: 'service',
-      description: 'AC Repair Service',
-      amount: 15000,
-      status: 'completed',
-      date: new Date(Date.now() - 86400000 * 10).toISOString(),
-      reference: 'SVC001238',
-    },
-  ];
+  const fetchTransactions = async () => {
+    try {
+      setLoading(true);
+      const response = await walletAPI.getTransactions({ limit: 10 });
+      if (response.success) {
+        setTransactions(response.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching transactions:', error);
+      toast.error('Failed to load transactions');
+      setTransactions([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const bankAccounts = [
-    { id: '1', bankName: 'GTBank', accountNumber: '****4521', accountName: 'John Doe', isDefault: true },
-    { id: '2', bankName: 'First Bank', accountNumber: '****7890', accountName: 'John Doe', isDefault: false },
-  ];
+  const fetchBankAccounts = async () => {
+    try {
+      const response = await walletAPI.getBankAccounts();
+      if (response.success) {
+        setBankAccounts(response.data || []);
+        const defaultAccount = response.data?.find(acc => acc.isDefault || acc.is_default);
+        if (defaultAccount) {
+          setSelectedBankAccount(defaultAccount.id.toString());
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching bank accounts:', error);
+      setBankAccounts([]);
+    }
+  };
 
   const handleWithdraw = async () => {
     const amount = parseFloat(withdrawAmount);
@@ -124,19 +114,29 @@ function Wallet() {
       toast.error(`Minimum withdrawal is ${formatCurrency(MIN_WITHDRAWAL)}`);
       return;
     }
-    if (amount > walletData.balance) {
+    if (walletData && amount > walletData.balance) {
       toast.error('Insufficient balance');
+      return;
+    }
+    if (!selectedBankAccount) {
+      toast.error('Please select a bank account');
       return;
     }
 
     setIsWithdrawing(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      toast.success('Withdrawal request submitted successfully!');
-      setShowWithdrawDialog(false);
-      setWithdrawAmount('');
+      const response = await walletAPI.withdraw(amount, selectedBankAccount);
+      if (response.success) {
+        toast.success('Withdrawal request submitted successfully!');
+        setShowWithdrawDialog(false);
+        setWithdrawAmount('');
+        // Refresh wallet data
+        fetchWalletData();
+        fetchTransactions();
+      }
     } catch (error) {
-      toast.error('Withdrawal failed. Please try again.');
+      console.error('Error withdrawing funds:', error);
+      toast.error(error.response?.data?.message || 'Withdrawal failed. Please try again.');
     } finally {
       setIsWithdrawing(false);
     }
@@ -151,12 +151,19 @@ function Wallet() {
 
     setIsFunding(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      toast.success('Redirecting to payment gateway...');
-      setShowFundDialog(false);
-      setFundAmount('');
+      const response = await walletAPI.fundWallet(amount);
+      if (response.success) {
+        toast.success('Redirecting to payment gateway...');
+        // If the API returns a payment URL, redirect to it
+        if (response.data?.payment_url) {
+          window.location.href = response.data.payment_url;
+        }
+        setShowFundDialog(false);
+        setFundAmount('');
+      }
     } catch (error) {
-      toast.error('Failed to initiate payment. Please try again.');
+      console.error('Error funding wallet:', error);
+      toast.error(error.response?.data?.message || 'Failed to initiate payment. Please try again.');
     } finally {
       setIsFunding(false);
     }
@@ -168,6 +175,17 @@ function Wallet() {
     }
     return <ArrowUpRight className="text-[var(--destructive)]" size={18} />;
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 animate-spin text-[var(--primary)] mx-auto mb-4" />
+          <p className="text-[var(--muted-foreground)]">Loading wallet...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 fade-in">
@@ -254,7 +272,7 @@ function Wallet() {
               <div className="space-y-4 py-4">
                 <div className="p-4 rounded-lg bg-[var(--secondary)]">
                   <p className="text-sm text-[var(--muted-foreground)]">Available Balance</p>
-                  <p className="text-2xl font-bold">{formatCurrency(walletData.balance)}</p>
+                  <p className="text-2xl font-bold">{formatCurrency(walletData?.balance || 0)}</p>
                 </div>
 
                 <div className="space-y-2">
@@ -269,14 +287,14 @@ function Wallet() {
 
                 <div className="space-y-2">
                   <Label>Withdraw to</Label>
-                  <Select defaultValue={bankAccounts[0].id}>
+                  <Select value={selectedBankAccount} onValueChange={setSelectedBankAccount}>
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue placeholder="Select bank account" />
                     </SelectTrigger>
                     <SelectContent>
                       {bankAccounts.map((account) => (
-                        <SelectItem key={account.id} value={account.id}>
-                          {account.bankName} - {account.accountNumber}
+                        <SelectItem key={account.id} value={account.id.toString()}>
+                          {account.bankName || account.bank_name} - {account.accountNumber || account.account_number}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -316,7 +334,7 @@ function Wallet() {
               <span className="text-sm opacity-90">Available Balance</span>
               <WalletIcon size={24} />
             </div>
-            <div className="text-3xl font-bold mb-1">{formatCurrency(walletData.balance)}</div>
+            <div className="text-3xl font-bold mb-1">{formatCurrency(walletData?.balance || 0)}</div>
             <p className="text-sm opacity-80">Ready for withdrawal</p>
           </CardContent>
         </Card>
@@ -330,7 +348,7 @@ function Wallet() {
               <Clock className="text-[var(--warning)]" size={24} />
             </div>
             <div className="text-3xl font-bold mb-1">
-              {formatCurrency(isProvider ? walletData.pendingBalance : walletData.escrowBalance)}
+              {formatCurrency(isProvider ? (walletData?.pendingBalance || walletData?.pending_balance || 0) : (walletData?.escrowBalance || walletData?.escrow_balance || 0))}
             </div>
             <p className="text-sm text-[var(--muted-foreground)]">
               {isProvider ? 'Awaiting job completion' : 'Held for active bookings'}
@@ -347,7 +365,7 @@ function Wallet() {
               <TrendingUp className="text-[var(--success)]" size={24} />
             </div>
             <div className="text-3xl font-bold mb-1">
-              {formatCurrency(isProvider ? walletData.totalEarnings : walletData.totalSpent)}
+              {formatCurrency(isProvider ? (walletData?.totalEarnings || walletData?.total_earnings || 0) : (walletData?.totalSpent || walletData?.total_spent || 0))}
             </div>
             <p className="text-sm text-[var(--muted-foreground)]">All time</p>
           </CardContent>

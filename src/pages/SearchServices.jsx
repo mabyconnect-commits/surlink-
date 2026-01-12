@@ -21,6 +21,7 @@ import {
   Truck,
   Settings,
   Camera,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -38,14 +39,16 @@ import {
   SheetTrigger,
 } from '../components/ui/sheet';
 import { SERVICE_CATEGORIES, formatCurrency } from '../lib/constants';
+import { servicesAPI, usersAPI } from '../services/apiClient';
+import { toast } from 'sonner';
 
 // Icon mapping
 const iconMap = {
   Wrench, Zap, Hammer, Paintbrush, Sparkles, Scissors, Car, Wind, TreeDeciduous, Truck, Settings, Camera,
 };
 
-// Mock providers data
-const mockProviders = [
+// Removed mock data - will fetch from API
+const oldMockProviders = [
   {
     id: '1',
     name: 'Chinedu Okafor',
@@ -157,60 +160,56 @@ function SearchServices() {
     availableToday: false,
     maxDistance: 10,
   });
-  const [filteredProviders, setFilteredProviders] = useState(mockProviders);
+  const [filteredProviders, setFilteredProviders] = useState([]);
   const [sortBy, setSortBy] = useState('rating');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let results = mockProviders;
-
-    // Filter by search query
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      results = results.filter(
-        p => p.name.toLowerCase().includes(query) ||
-             p.services.some(s => s.includes(query)) ||
-             p.bio.toLowerCase().includes(query)
-      );
-    }
-
-    // Filter by category
-    if (selectedCategory) {
-      results = results.filter(p => p.services.includes(selectedCategory));
-    }
-
-    // Apply other filters
-    results = results.filter(p => {
-      if (filters.verifiedOnly && !p.verified) return false;
-      if (filters.availableToday && !p.availability.includes('today')) return false;
-      if (p.rating < filters.minRating) return false;
-      if (p.distance > filters.maxDistance) return false;
-      if (p.priceRange.min < filters.minPrice || p.priceRange.min > filters.maxPrice) return false;
-      return true;
-    });
-
-    // Sort results
-    switch (sortBy) {
-      case 'rating':
-        results.sort((a, b) => b.rating - a.rating);
-        break;
-      case 'distance':
-        results.sort((a, b) => a.distance - b.distance);
-        break;
-      case 'price-low':
-        results.sort((a, b) => a.priceRange.min - b.priceRange.min);
-        break;
-      case 'price-high':
-        results.sort((a, b) => b.priceRange.min - a.priceRange.min);
-        break;
-      case 'reviews':
-        results.sort((a, b) => b.reviews - a.reviews);
-        break;
-      default:
-        break;
-    }
-
-    setFilteredProviders(results);
+    fetchServices();
   }, [searchQuery, selectedCategory, filters, sortBy]);
+
+  const fetchServices = async () => {
+    setLoading(true);
+    try {
+      // Build API query params
+      const params = {
+        search: searchQuery || undefined,
+        category: selectedCategory || undefined,
+        price_min: filters.minPrice || undefined,
+        price_max: filters.maxPrice || undefined,
+        sort: sortBy,
+        limit: 50,
+      };
+
+      // Remove undefined values
+      Object.keys(params).forEach(key => params[key] === undefined && delete params[key]);
+
+      const result = await servicesAPI.getAll(params);
+
+      if (result.success && result.data) {
+        // Apply client-side filters that aren't handled by API
+        let services = result.data;
+
+        // Filter by rating
+        if (filters.minRating > 0) {
+          services = services.filter(s => (s.provider?.rating || 0) >= filters.minRating);
+        }
+
+        // Filter by verified
+        if (filters.verifiedOnly) {
+          services = services.filter(s => s.provider?.verified === true);
+        }
+
+        setFilteredProviders(services);
+      }
+    } catch (error) {
+      console.error('Failed to fetch services:', error);
+      toast.error('Failed to load services');
+      setFilteredProviders([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -410,7 +409,11 @@ function SearchServices() {
       </div>
 
       {/* Results Grid */}
-      {filteredProviders.length > 0 ? (
+      {loading ? (
+        <div className="flex justify-center items-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-[var(--primary)]" />
+        </div>
+      ) : filteredProviders.length > 0 ? (
         <div className="provider-grid">
           {filteredProviders.map((provider) => (
             <Card

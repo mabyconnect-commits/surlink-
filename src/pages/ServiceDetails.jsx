@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
+import { servicesAPI, usersAPI } from '../services/apiClient';
 import {
   Star,
   MapPin,
@@ -13,6 +15,7 @@ import {
   Scissors,
   Car,
   Wind,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
@@ -24,30 +27,38 @@ const iconMap = {
   Wrench, Zap, Hammer, Paintbrush, Sparkles, Scissors, Car, Wind,
 };
 
-// Mock providers for each category
-const mockProvidersByCategory = {
-  plumbing: [
-    { id: '1', name: 'Chinedu Okafor', rating: 4.9, reviews: 234, jobs: 312, distance: 0.8, priceFrom: 5000, verified: true },
-    { id: '2', name: 'Mike Adebayo', rating: 4.8, reviews: 156, jobs: 189, distance: 1.2, priceFrom: 4500, verified: true },
-    { id: '3', name: 'David Eze', rating: 4.7, reviews: 89, jobs: 124, distance: 1.5, priceFrom: 6000, verified: false },
-  ],
-  electrical: [
-    { id: '4', name: 'Samuel Nnamdi', rating: 4.9, reviews: 198, jobs: 267, distance: 0.5, priceFrom: 8000, verified: true },
-    { id: '5', name: 'Tunde Bakare', rating: 4.6, reviews: 67, jobs: 89, distance: 2.0, priceFrom: 7000, verified: true },
-  ],
-  cleaning: [
-    { id: '6', name: 'Adaeze Nwankwo', rating: 4.8, reviews: 312, jobs: 456, distance: 1.0, priceFrom: 3000, verified: true },
-    { id: '7', name: 'Fatima Ibrahim', rating: 4.9, reviews: 245, jobs: 378, distance: 1.5, priceFrom: 3500, verified: true },
-  ],
-};
-
 function ServiceDetails() {
   const { categoryId } = useParams();
   const navigate = useNavigate();
+  const [providers, setProviders] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   const category = SERVICE_CATEGORIES.find(c => c.id === categoryId);
-  const providers = mockProvidersByCategory[categoryId] || [];
   const Icon = iconMap[category?.icon] || Wrench;
+
+  // Fetch providers for this category
+  useEffect(() => {
+    const fetchProviders = async () => {
+      try {
+        setIsLoading(true);
+        const response = await usersAPI.getProviders({ category: categoryId });
+        if (response.success) {
+          setProviders(response.data || []);
+        } else {
+          toast.error('Failed to load providers');
+        }
+      } catch (error) {
+        console.error('Error fetching providers:', error);
+        toast.error(error.response?.data?.message || 'Failed to load providers');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (categoryId) {
+      fetchProviders();
+    }
+  }, [categoryId]);
 
   if (!category) {
     return (
@@ -79,11 +90,18 @@ function ServiceDetails() {
 
       {/* Provider Count */}
       <p className="text-sm text-[var(--muted-foreground)]">
-        {providers.length} providers available near you
+        {isLoading ? 'Loading...' : `${providers.length} providers available near you`}
       </p>
 
-      {/* Providers List */}
-      <div className="space-y-4">
+      {/* Loading State */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-[var(--primary)]" />
+        </div>
+      ) : (
+        <>
+          {/* Providers List */}
+          <div className="space-y-4">
         {providers.map((provider) => (
           <Card
             key={provider.id}
@@ -130,9 +148,9 @@ function ServiceDetails() {
             </CardContent>
           </Card>
         ))}
-      </div>
+          </div>
 
-      {providers.length === 0 && (
+          {providers.length === 0 && (
         <div className="text-center py-16">
           <Icon size={48} className="mx-auto mb-4 text-[var(--muted-foreground)]" />
           <h3 className="text-lg font-semibold mb-2">No providers available</h3>
@@ -143,6 +161,8 @@ function ServiceDetails() {
             Browse Other Services
           </Button>
         </div>
+          )}
+        </>
       )}
     </div>
   );

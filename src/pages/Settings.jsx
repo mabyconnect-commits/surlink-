@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../App';
+import { authAPI } from '../services/apiClient';
 import {
   User,
   Bell,
@@ -67,9 +68,25 @@ function Settings() {
 
   const isProvider = user?.role === 'provider';
 
-  const handleNotificationChange = (key, value) => {
-    setNotifications(prev => ({ ...prev, [key]: value }));
-    toast.success('Notification settings updated');
+  const handleNotificationChange = async (key, value) => {
+    const updatedNotifications = { ...notifications, [key]: value };
+    setNotifications(updatedNotifications);
+
+    try {
+      const response = await authAPI.updateSettings({ notifications: updatedNotifications });
+      if (response.success) {
+        toast.success('Notification settings updated');
+      } else {
+        // Revert on failure
+        setNotifications(notifications);
+        toast.error('Failed to update settings');
+      }
+    } catch (error) {
+      // Revert on error
+      setNotifications(notifications);
+      console.error('Error updating settings:', error);
+      toast.error(error.response?.data?.message || 'Failed to update settings');
+    }
   };
 
   const handleChangePassword = async () => {
@@ -84,12 +101,17 @@ function Settings() {
 
     setIsChangingPassword(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      toast.success('Password changed successfully');
-      setShowPasswordDialog(false);
-      setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
+      const response = await authAPI.changePassword(passwordForm.oldPassword, passwordForm.newPassword);
+      if (response.success) {
+        toast.success('Password changed successfully');
+        setShowPasswordDialog(false);
+        setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
+      } else {
+        toast.error(response.message || 'Failed to change password');
+      }
     } catch (error) {
-      toast.error('Failed to change password');
+      console.error('Error changing password:', error);
+      toast.error(error.response?.data?.message || 'Failed to change password');
     } finally {
       setIsChangingPassword(false);
     }

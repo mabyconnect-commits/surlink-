@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../App';
+import { bookingsAPI, reviewsAPI } from '../services/apiClient';
 import {
   ArrowLeft,
   Calendar,
@@ -42,57 +43,55 @@ function BookingDetails() {
   const [rating, setRating] = useState(0);
   const [review, setReview] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [booking, setBooking] = useState(null);
+  const [isFetching, setIsFetching] = useState(true);
 
   const isProvider = user?.role === 'provider';
 
-  // Mock booking data
-  const booking = {
-    id: bookingId,
-    service: 'Pipe Installation',
-    category: 'plumbing',
-    description: 'Install new water pipes in the bathroom. Need to replace old corroded pipes with new PVC pipes.',
-    provider: {
-      id: 'p1',
-      name: 'Chinedu Okafor',
-      avatar: null,
-      rating: 4.9,
-      phone: '+234 800 000 0001',
-      verified: true,
-    },
-    customer: {
-      id: 'c1',
-      name: 'Grace Adeyemi',
-      avatar: null,
-      phone: '+234 800 000 0002',
-    },
-    status: 'in_progress',
-    date: new Date().toISOString(),
-    scheduledTime: '10:00 AM - 12:00 PM',
-    location: '15 Admiralty Way, Lekki Phase 1, Lagos',
-    amount: 25000,
-    platformFee: 3750,
-    netAmount: 21250,
-    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-    notes: 'Please bring your own tools. Parking available in the compound.',
-  };
+  // Fetch booking details
+  useEffect(() => {
+    const fetchBooking = async () => {
+      try {
+        setIsFetching(true);
+        const response = await bookingsAPI.getById(bookingId);
+        if (response.success) {
+          setBooking(response.data);
+        } else {
+          toast.error('Failed to load booking details');
+          navigate('/bookings');
+        }
+      } catch (error) {
+        console.error('Error fetching booking:', error);
+        toast.error(error.response?.data?.message || 'Failed to load booking details');
+        navigate('/bookings');
+      } finally {
+        setIsFetching(false);
+      }
+    };
 
-  const timeline = [
-    { status: 'created', label: 'Booking Created', date: booking.createdAt },
-    { status: 'accepted', label: 'Provider Accepted', date: new Date(Date.now() - 86400000).toISOString() },
-    { status: 'in_progress', label: 'Job Started', date: new Date().toISOString() },
-  ];
-
-  const otherParty = isProvider ? booking.customer : booking.provider;
+    if (bookingId) {
+      fetchBooking();
+    }
+  }, [bookingId, navigate]);
 
   const handleCancel = async () => {
     setIsLoading(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      toast.success('Booking cancelled successfully');
-      setShowCancelDialog(false);
-      navigate('/bookings');
+      const response = await bookingsAPI.cancel(bookingId, 'User requested cancellation');
+      if (response.success) {
+        toast.success('Booking cancelled successfully');
+        setShowCancelDialog(false);
+        // Refresh booking data
+        const updatedBooking = await bookingsAPI.getById(bookingId);
+        if (updatedBooking.success) {
+          setBooking(updatedBooking.data);
+        }
+      } else {
+        toast.error(response.message || 'Failed to cancel booking');
+      }
     } catch (error) {
-      toast.error('Failed to cancel booking');
+      console.error('Error cancelling booking:', error);
+      toast.error(error.response?.data?.message || 'Failed to cancel booking');
     } finally {
       setIsLoading(false);
     }
@@ -101,11 +100,21 @@ function BookingDetails() {
   const handleComplete = async () => {
     setIsLoading(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      toast.success('Job marked as complete!');
-      setShowCompleteDialog(false);
+      const response = await bookingsAPI.complete(bookingId);
+      if (response.success) {
+        toast.success('Job marked as complete!');
+        setShowCompleteDialog(false);
+        // Refresh booking data
+        const updatedBooking = await bookingsAPI.getById(bookingId);
+        if (updatedBooking.success) {
+          setBooking(updatedBooking.data);
+        }
+      } else {
+        toast.error(response.message || 'Failed to complete job');
+      }
     } catch (error) {
-      toast.error('Failed to complete job');
+      console.error('Error completing booking:', error);
+      toast.error(error.response?.data?.message || 'Failed to complete job');
     } finally {
       setIsLoading(false);
     }
@@ -118,11 +127,23 @@ function BookingDetails() {
     }
     setIsLoading(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      toast.success('Review submitted successfully!');
-      setShowReviewDialog(false);
+      const response = await reviewsAPI.create({
+        bookingId: bookingId,
+        providerId: booking.provider.id,
+        rating: rating,
+        comment: review,
+      });
+      if (response.success) {
+        toast.success('Review submitted successfully!');
+        setShowReviewDialog(false);
+        setRating(0);
+        setReview('');
+      } else {
+        toast.error(response.message || 'Failed to submit review');
+      }
     } catch (error) {
-      toast.error('Failed to submit review');
+      console.error('Error submitting review:', error);
+      toast.error(error.response?.data?.message || 'Failed to submit review');
     } finally {
       setIsLoading(false);
     }
@@ -140,6 +161,32 @@ function BookingDetails() {
   const getInitials = (name) => {
     return name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
   };
+
+  if (isFetching) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-[var(--primary)]" />
+      </div>
+    );
+  }
+
+  if (!booking) {
+    return (
+      <div className="text-center py-16">
+        <h2 className="text-xl font-semibold mb-4">Booking not found</h2>
+        <Button onClick={() => navigate('/bookings')}>Go to Bookings</Button>
+      </div>
+    );
+  }
+
+  const otherParty = isProvider ? booking.customer : booking.provider;
+  const timeline = [
+    { status: 'created', label: 'Booking Created', date: booking.createdAt },
+    ...(booking.acceptedAt ? [{ status: 'accepted', label: 'Provider Accepted', date: booking.acceptedAt }] : []),
+    ...(booking.startedAt ? [{ status: 'in_progress', label: 'Job Started', date: booking.startedAt }] : []),
+    ...(booking.completedAt ? [{ status: 'completed', label: 'Job Completed', date: booking.completedAt }] : []),
+    ...(booking.cancelledAt ? [{ status: 'cancelled', label: 'Booking Cancelled', date: booking.cancelledAt }] : []),
+  ];
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 fade-in">

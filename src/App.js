@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from './components/ui/sonner';
+import { authAPI } from './services/apiClient';
 
 // Pages
 import Landing from './pages/Landing';
@@ -57,56 +58,55 @@ function AuthProvider({ children }) {
 
   useEffect(() => {
     // Check for existing session
-    const storedUser = localStorage.getItem('surlink_user');
-    if (storedUser) {
+    const storedUser = localStorage.getItem('user');
+    const token = localStorage.getItem('token');
+
+    if (storedUser && token) {
       try {
         setUser(JSON.parse(storedUser));
       } catch (e) {
-        localStorage.removeItem('surlink_user');
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
       }
     }
     setLoading(false);
   }, []);
 
   const login = async (email, password) => {
-    // API call would go here
-    const mockUser = {
-      id: '1',
-      email,
-      name: 'Test User',
-      role: email.includes('provider') ? 'provider' : 'customer',
-      avatar: null,
-      isVerified: true,
-      kycStatus: 'verified',
-      referralCode: 'SURLINK' + Math.random().toString(36).substring(2, 8).toUpperCase(),
-    };
-    setUser(mockUser);
-    localStorage.setItem('surlink_user', JSON.stringify(mockUser));
-    return mockUser;
+    try {
+      const result = await authAPI.login(email, password);
+
+      if (result.success && result.user) {
+        setUser(result.user);
+        return result.user;
+      } else {
+        throw new Error(result.message || 'Login failed');
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      throw error;
+    }
   };
 
   const register = async (userData) => {
-    // API call would go here
-    const newUser = {
-      id: Date.now().toString(),
-      email: userData.email,
-      name: userData.name,
-      phone: userData.phone,
-      role: userData.role,
-      avatar: null,
-      isVerified: false,
-      kycStatus: userData.role === 'provider' ? 'pending' : 'not_required',
-      referralCode: 'SURLINK' + Math.random().toString(36).substring(2, 8).toUpperCase(),
-      referredBy: userData.referralCode || null,
-    };
-    setUser(newUser);
-    localStorage.setItem('surlink_user', JSON.stringify(newUser));
-    return newUser;
+    try {
+      const result = await authAPI.register(userData);
+
+      if (result.success && result.user) {
+        setUser(result.user);
+        return result.user;
+      } else {
+        throw new Error(result.message || 'Registration failed');
+      }
+    } catch (error) {
+      console.error('Registration error:', error);
+      throw error;
+    }
   };
 
   const logout = () => {
+    authAPI.logout();
     setUser(null);
-    localStorage.removeItem('surlink_user');
   };
 
   const updateUser = (updates) => {
